@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather Radar Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+    /* Hide Leaflet attribution for cleaner wallpaper */
+    .leaflet-control-attribution {
+      display: none;
+    }
+    .leaflet-control-zoom {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Get map style from URL parameter (default: satellite)
+    const urlParams = new URLSearchParams(window.location.search);
+    const mapStyle = urlParams.get('style') || 'satellite';
+
+    // Initialize map centered on continental US
+    const map = L.map('map', {
+      center: [39.8, -98.5],
+      zoom: 5,
+      zoomControl: false,
+      attributionControl: false
+    });
+
+    // Track loading state
+    window.mapReady = false;
+    window.tilesLoaded = { base: false, labels: false, radar: false };
+
+    // Tile layer URLs for different styles
+    const tileStyles = {
+      satellite: {
+        base: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        labels: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
+      },
+      dark: {
+        base: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        labels: null // Labels included in dark tiles
+      },
+      light: {
+        base: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+        labels: null // Labels included in light tiles
+      }
+    };
+
+    const style = tileStyles[mapStyle] || tileStyles.satellite;
+
+    // Base layer
+    const baseLayer = L.tileLayer(style.base, {
+      maxZoom: 19,
+      subdomains: 'abcd'
+    }).addTo(map);
+
+    baseLayer.on('load', () => {
+      console.log('Base tiles loaded');
+      window.tilesLoaded.base = true;
+      checkAllLoaded();
+    });
+
+    // Labels layer (only for satellite style)
+    if (style.labels) {
+      const labels = L.tileLayer(style.labels, {
+        maxZoom: 19,
+        opacity: 0.8
+      }).addTo(map);
+
+      labels.on('load', () => {
+        console.log('Labels tiles loaded');
+        window.tilesLoaded.labels = true;
+        checkAllLoaded();
+      });
+    } else {
+      window.tilesLoaded.labels = true; // No separate labels layer needed
+    }
+
+    function checkAllLoaded() {
+      if (window.tilesLoaded.base && window.tilesLoaded.labels && window.tilesLoaded.radar) {
+        console.log('All tiles loaded!');
+        window.mapReady = true;
+      }
+    }
+
+    // RainViewer radar overlay
+    let radarLayer = null;
+
+    async function loadRadar() {
+      try {
+        // Add cache-busting parameter to get fresh radar data
+        const response = await fetch('https://api.rainviewer.com/public/weather-maps.json?_=' + Date.now());
+        const data = await response.json();
+
+        // Get the most recent radar frame
+        const latestFrame = data.radar.past[data.radar.past.length - 1];
+        const timestamp = latestFrame.path;
+
+        // Add radar tile layer
+        radarLayer = L.tileLayer(
+          `https://tilecache.rainviewer.com${timestamp}/512/{z}/{x}/{y}/6/1_1.png`,
+          {
+            opacity: 0.6,
+            maxZoom: 19
+          }
+        ).addTo(map);
+
+        radarLayer.on('load', () => {
+          console.log('Radar tiles loaded');
+          window.tilesLoaded.radar = true;
+          checkAllLoaded();
+        });
+
+      } catch (error) {
+        console.error('Failed to load radar data:', error);
+        window.tilesLoaded.radar = true; // Mark as done anyway
+        checkAllLoaded();
+      }
+    }
+
+    // Start loading radar
+    loadRadar();
+  </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "weather-wallpaper",
+  "version": "1.0.0",
+  "description": "Generate a desktop wallpaper with weather radar overlay",
+  "main": "generate.js",
+  "scripts": {
+    "generate": "node generate.js"
+  },
+  "dependencies": {
+    "puppeteer": "^23.0.0"
+  }
+}

@@ -1,0 +1,19 @@
+# Node
+node_modules/
+package-lock.json
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj
+xcuserdata/
+
+# Generated files
+wallpaper*.png
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+desktoppr
