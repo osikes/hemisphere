@@ -30,7 +30,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var wallpaperManager: WallpaperManager?
 
-    // Menu items for style selection
+    // Menu items
+    var lastUpdatedMenuItem: NSMenuItem?
     var satelliteMenuItem: NSMenuItem?
     var darkMenuItem: NSMenuItem?
     var lightMenuItem: NSMenuItem?
@@ -45,6 +46,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Create menu
         let menu = NSMenu()
+
+        lastUpdatedMenuItem = NSMenuItem(title: "Last updated: --", action: nil, keyEquivalent: "")
+        lastUpdatedMenuItem?.isEnabled = false
+        menu.addItem(lastUpdatedMenuItem!)
+        menu.addItem(NSMenuItem.separator())
 
         menu.addItem(NSMenuItem(title: "Refresh Wallpaper", action: #selector(refreshWallpaper), keyEquivalent: "r"))
         menu.addItem(NSMenuItem.separator())
@@ -78,10 +84,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Initialize wallpaper manager
         wallpaperManager = WallpaperManager()
+        wallpaperManager?.onWallpaperSet = { [weak self] in
+            self?.updateLastUpdatedTime()
+        }
         wallpaperManager?.startListening()
 
         // Initial wallpaper set
         refreshWallpaper()
+    }
+
+    func updateLastUpdatedTime() {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        let timeString = formatter.string(from: Date())
+        lastUpdatedMenuItem?.title = "Last updated: \(timeString)"
     }
 
     @objc func refreshWallpaper() {
@@ -131,6 +148,7 @@ enum MapStyle: String {
 class WallpaperManager {
     var mapStyle: MapStyle = .satellite
     var autoRefreshEnabled = true
+    var onWallpaperSet: (() -> Void)?  // Callback when wallpaper is updated
     private var refreshTimer: Timer?
     private var isGenerating = false  // Prevent concurrent generations
 
@@ -272,6 +290,9 @@ class WallpaperManager {
 
             if task.terminationStatus == 0 {
                 log("SUCCESS: Set wallpaper on all spaces")
+                DispatchQueue.main.async {
+                    self.onWallpaperSet?()
+                }
             } else {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let output = String(data: data, encoding: .utf8) ?? "unknown error"
@@ -283,8 +304,30 @@ class WallpaperManager {
     }
 
     private func getScriptDirectory() -> String {
-        // Get the directory where our Node.js scripts are
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
-        return homeDir + "/code/orgs/pdsullivan/weather-wallpaper"
+        // Check for environment variable first
+        if let envPath = ProcessInfo.processInfo.environment["HEMISPHERE_SCRIPTS_DIR"] {
+            return envPath
+        }
+
+        // Try to find scripts relative to the executable
+        let executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        let possiblePaths = [
+            // Parent of .build/debug/Hemisphere (development)
+            executableURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path,
+            // Same directory as executable
+            executableURL.deletingLastPathComponent().path,
+            // Current working directory
+            FileManager.default.currentDirectoryPath
+        ]
+
+        for path in possiblePaths {
+            let scriptPath = path + "/generate.js"
+            if FileManager.default.fileExists(atPath: scriptPath) {
+                return path
+            }
+        }
+
+        // Fallback to current directory
+        return FileManager.default.currentDirectoryPath
     }
 }
