@@ -4,6 +4,7 @@ import MapKit
 enum MapStyle: String {
     case satellite = "satellite"
     case dark = "dark"
+    case blackout = "blackout"
     case light = "light"
 }
 

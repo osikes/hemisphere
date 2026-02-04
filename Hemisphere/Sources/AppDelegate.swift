@@ -8,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var lastUpdatedMenuItem: NSMenuItem?
     var satelliteMenuItem: NSMenuItem?
     var darkMenuItem: NSMenuItem?
+    var blackoutMenuItem: NSMenuItem?
     var lightMenuItem: NSMenuItem?
 
     // Refresh interval menu
@@ -54,6 +55,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         darkMenuItem = NSMenuItem(title: "Dark", action: #selector(setMapStyleDark), keyEquivalent: "")
         mapStyleMenu.addItem(darkMenuItem!)
+
+        blackoutMenuItem = NSMenuItem(title: "Black Out", action: #selector(setMapStyleBlackout), keyEquivalent: "")
+        mapStyleMenu.addItem(blackoutMenuItem!)
 
         lightMenuItem = NSMenuItem(title: "Light", action: #selector(setMapStyleLight), keyEquivalent: "")
         mapStyleMenu.addItem(lightMenuItem!)
@@ -198,9 +202,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         refreshWallpaper()
     }
 
+    @objc func setMapStyleBlackout() {
+        wallpaperManager?.mapStyle = .blackout
+        updateStyleCheckmarks()
+        refreshWallpaper()
+    }
+
     func updateStyleCheckmarks() {
         satelliteMenuItem?.state = wallpaperManager?.mapStyle == .satellite ? .on : .off
         darkMenuItem?.state = wallpaperManager?.mapStyle == .dark ? .on : .off
+        blackoutMenuItem?.state = wallpaperManager?.mapStyle == .blackout ? .on : .off
         lightMenuItem?.state = wallpaperManager?.mapStyle == .light ? .on : .off
     }
 

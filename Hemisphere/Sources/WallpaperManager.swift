@@ -199,19 +199,25 @@ class WallpaperManager {
 
         let size = screen.frame.size
 
-        // Configure map snapshot options
-        let options = MKMapSnapshotter.Options()
-        options.size = size
-
         // Create coordinate region - wider for landscape screens
         let center = CLLocationCoordinate2D(latitude: region.lat, longitude: region.lon)
         let latSpan = region.span
         let lonSpan = region.span * (size.width / size.height)  // Adjust for screen aspect ratio
         let mapSpan = MKCoordinateSpan(latitudeDelta: latSpan, longitudeDelta: lonSpan)
         let mapRegion = MKCoordinateRegion(center: center, span: mapSpan)
-        options.region = mapRegion
 
         log("Map snapshot: center=(\(region.lat), \(region.lon)), span=(\(latSpan), \(lonSpan)), size=\(size)")
+
+        // For blackout style, use CartoDB Dark Matter tiles instead of MapKit
+        if style == .blackout {
+            generateDarkMapWithTiles(mapRegion: mapRegion, size: size, layers: layers, completion: completion)
+            return
+        }
+
+        // Configure map snapshot options for other styles
+        let options = MKMapSnapshotter.Options()
+        options.size = size
+        options.region = mapRegion
 
         // Set map style (avoid flyover types which show 3D globe)
         switch style {
@@ -221,6 +227,8 @@ class WallpaperManager {
             options.mapType = .mutedStandard
         case .light:
             options.mapType = .standard
+        case .blackout:
+            break // Handled above
         }
 
         // Disable POI for cleaner map
@@ -244,6 +252,99 @@ class WallpaperManager {
             } else {
                 completion(snapshot.image)
             }
+        }
+    }
+
+    private func generateDarkMapWithTiles(mapRegion: MKCoordinateRegion, size: CGSize, layers: WeatherLayers, completion: @escaping (NSImage?) -> Void) {
+        // Use a higher zoom level for dark tiles to get better coverage and quality
+        let tiles = calculateTilesForRegion(mapRegion: mapRegion, size: size, minZoom: 5)
+
+        log("Fetching \(tiles.count) CartoDB Dark Matter tiles at zoom \(tiles.first?.z ?? 0)...")
+
+        let group = DispatchGroup()
+        var baseTiles: [(tile: (x: Int, y: Int, z: Int), image: NSImage)] = []
+        var radarTiles: [(tile: (x: Int, y: Int, z: Int), image: NSImage)] = []
+        let lock = NSLock()
+
+        // Fetch CartoDB Dark Matter tiles with retina resolution
+        let subdomains = ["a", "b", "c", "d"]
+        for (index, tile) in tiles.enumerated() {
+            group.enter()
+            let subdomain = subdomains[index % subdomains.count]
+            let urlString = "https://\(subdomain).basemaps.cartocdn.com/dark_all/\(tile.z)/\(tile.x)/\(tile.y)@2x.png"
+
+            guard let url = URL(string: urlString) else {
+                log("Invalid dark tile URL for tile \(tile)")
+                group.leave()
+                continue
+            }
+
+            URLSession.shared.dataTask(with: url) { data, response, error in
+                defer { group.leave() }
+                if let error = error {
+                    log("Dark tile error for \(tile): \(error.localizedDescription)")
+                    return
+                }
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                    log("Dark tile HTTP \(httpResponse.statusCode) for \(tile)")
+                    return
+                }
+                if let data = data, let image = NSImage(data: data) {
+                    lock.lock()
+                    baseTiles.append((tile, image))
+                    lock.unlock()
+                }
+            }.resume()
+        }
+
+        // Fetch radar tiles if enabled
+        if let radarPath = layers.radarPath {
+            for tile in tiles {
+                group.enter()
+                let urlString = "https://tilecache.rainviewer.com\(radarPath)/512/\(tile.z)/\(tile.x)/\(tile.y)/2/1_1.png"
+                guard let url = URL(string: urlString) else {
+                    group.leave()
+                    continue
+                }
+
+                URLSession.shared.dataTask(with: url) { data, _, _ in
+                    defer { group.leave() }
+                    if let data = data, let image = NSImage(data: data) {
+                        lock.lock()
+                        radarTiles.append((tile, image))
+                        lock.unlock()
+                    }
+                }.resume()
+            }
+        }
+
+        group.notify(queue: .main) { [weak self] in
+            guard let self = self else { return }
+
+            log("Downloaded \(baseTiles.count)/\(tiles.count) dark tiles, \(radarTiles.count) radar tiles")
+
+            // Composite all tiles
+            let finalImage = NSImage(size: size)
+            finalImage.lockFocus()
+
+            // Fill with dark background first (CartoDB dark uses this color)
+            NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0).setFill()
+            NSRect(origin: .zero, size: size).fill()
+
+            // Draw base dark tiles
+            for (tile, tileImage) in baseTiles {
+                let rect = self.tileToRect(tile: tile, mapRegion: mapRegion, size: size)
+                tileImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            }
+
+            // Draw radar tiles on top with transparency
+            for (tile, tileImage) in radarTiles {
+                let rect = self.tileToRect(tile: tile, mapRegion: mapRegion, size: size)
+                tileImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 0.7)
+            }
+
+            finalImage.unlockFocus()
+            completion(finalImage)
         }
     }
 
@@ -343,11 +444,11 @@ class WallpaperManager {
         }
     }
 
-    private func calculateTilesForRegion(mapRegion: MKCoordinateRegion, size: CGSize) -> [(x: Int, y: Int, z: Int)] {
+    private func calculateTilesForRegion(mapRegion: MKCoordinateRegion, size: CGSize, minZoom: Int = 4) -> [(x: Int, y: Int, z: Int)] {
         let latSpan = mapRegion.span.latitudeDelta
 
         // Determine appropriate zoom level based on latitude span
-        let z: Int
+        var z: Int
         if latSpan >= 30 {
             z = 4
         } else if latSpan >= 15 {
@@ -360,11 +461,15 @@ class WallpaperManager {
             z = 8
         }
 
-        // Calculate tile coordinates for the region bounds
-        let minLat = mapRegion.center.latitude - mapRegion.span.latitudeDelta / 2
-        let maxLat = mapRegion.center.latitude + mapRegion.span.latitudeDelta / 2
-        let minLon = mapRegion.center.longitude - mapRegion.span.longitudeDelta / 2
-        let maxLon = mapRegion.center.longitude + mapRegion.span.longitudeDelta / 2
+        // Ensure minimum zoom level
+        z = max(z, minZoom)
+
+        // Calculate tile coordinates for the region bounds with a small buffer
+        let buffer = 0.05  // 5% buffer to ensure full coverage
+        let minLat = mapRegion.center.latitude - mapRegion.span.latitudeDelta / 2 * (1 + buffer)
+        let maxLat = mapRegion.center.latitude + mapRegion.span.latitudeDelta / 2 * (1 + buffer)
+        let minLon = mapRegion.center.longitude - mapRegion.span.longitudeDelta / 2 * (1 + buffer)
+        let maxLon = mapRegion.center.longitude + mapRegion.span.longitudeDelta / 2 * (1 + buffer)
 
         let minTile = latLonToTile(lat: maxLat, lon: minLon, zoom: z)
         let maxTile = latLonToTile(lat: minLat, lon: maxLon, zoom: z)
