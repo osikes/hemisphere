@@ -222,16 +222,38 @@ class WallpaperManager {
         // Set map style (avoid flyover types which show 3D globe)
         switch style {
         case .satellite:
-            options.mapType = .hybrid
+            let config = MKHybridMapConfiguration()
+            config.pointOfInterestFilter = .excludingAll
+            if #available(macOS 14.0, *) {
+                options.preferredConfiguration = config
+            } else {
+                // Fallback on earlier versions
+            }
         case .dark:
-            options.mapType = .mutedStandard
+            let config = MKStandardMapConfiguration()
+            config.pointOfInterestFilter = .excludingAll
+            if #available(macOS 14.0, *) {
+                options.preferredConfiguration = config
+            } else {
+                // Fallback on earlier versions
+            }
+            // Force dark appearance regardless of system setting
+            options.appearance = NSAppearance(named: .darkAqua)
         case .light:
-            options.mapType = .standard
+            let config = MKStandardMapConfiguration()
+            config.pointOfInterestFilter = .excludingAll
+            if #available(macOS 14.0, *) {
+                options.preferredConfiguration = config
+            } else {
+                // Fallback on earlier versions
+            }
+            // Force light appearance regardless of system setting
+            options.appearance = NSAppearance(named: .aqua)
         case .blackout:
             break // Handled above
         }
 
-        // Disable POI for cleaner map
+        // Disable POI for cleaner map (fallback for older configs)
         options.pointOfInterestFilter = .excludingAll
 
         // Ensure we're showing a flat map, not 3D
