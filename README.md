@@ -16,17 +16,25 @@ a macos menu bar app that sets your desktop wallpaper to a live weather radar ma
 ## requirements
 
 - macos 13+
-- xcode command line tools
 
 ## installation
 
-run this in your terminal:
+### option 1: download
+
+1. download `Hemisphere.zip` from the [latest release](https://github.com/pdsullivan/hemisphere/releases/latest)
+2. unzip and move `Hemisphere` to your Applications folder
+3. right-click and select "open" to bypass gatekeeper
+4. grant system events permission when prompted
+
+### option 2: install script
+
+requires xcode command line tools (`xcode-select --install`)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/pdsullivan/hemisphere/main/install.sh | bash
 ```
 
-then run the app:
+then run:
 
 ```bash
 ~/Applications/Hemisphere
